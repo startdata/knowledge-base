@@ -1,0 +1,16 @@
+{
+  "_comment": "이 hooks 블록을 ~/.claude/settings.json 에 병합하세요 (이미 파일이 있으면 hooks 키만 추가). 경로는 ~/ 라서 사용자명 무관.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh ~/.claude/hooks/notify-organize.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
