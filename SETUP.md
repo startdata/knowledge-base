@@ -16,34 +16,19 @@
 
 ## 회사 Mac 세팅
 
-> 회사 Mac은 **GitHub 계정이 집과 다르다.** 접근 권한 설정이 핵심.
+> 회사 Mac은 이미 이 레포에 pull/push가 되는 상태이므로 **SSH 키 등록·권한 설정은 건너뛴다.**
 
-### 1. SSH 키 준비
+### 1. clone
 ```
-ls ~/.ssh/*.pub                          # 기존 키 확인
-ssh-keygen -t ed25519 -C "회사_이메일"    # 없으면 생성
-ssh-add --apple-use-keychain ~/.ssh/id_ed25519   # passphrase 걸었으면 키체인 저장
-```
-
-### 2. 저장소 접근 권한 (둘 중 하나)
-- **방법 A (권장·단순)** — 회사 Mac 공개키를 **개인 계정(startdata)** 에 등록
-  GitHub(startdata 로그인) → Settings → SSH and GPG keys → New SSH key → 공개키 붙여넣기
-- **방법 B** — 회사 계정을 repo collaborator로 초대 (회사 Mac에서 회사 계정을 쓸 경우)
-
-공개키 복사: `pbcopy < ~/.ssh/id_ed25519.pub`
-
-### 3. 연결 확인 + clone
-```
-ssh -T git@github.com
 git clone git@github.com:startdata/knowledge-base.git ~/knowledge-base
 ```
-호스트키 경고가 뜨면: `ssh-keygen -R github.com` 후 재시도.
+(호스트키 경고가 뜨면 `ssh-keygen -R github.com` 후 재시도)
 
-### 4. Obsidian
+### 2. Obsidian
 - 설치 → "Open folder as vault" → `~/knowledge-base`
 - 커뮤니티 플러그인(나중에): Spaced Repetition(복습), Obsidian Git(자동 동기화)
 
-### 5. 자동화 트리거 설정 (★ 중요)
+### 3. 자동화 트리거 설정 (★ 중요)
 정리 자동화(커맨드·훅)는 `~/.claude/`에 있어 **git으로 따라오지 않는다.** repo의 `_setup/`에 백업해뒀으니 회사 Mac에서 복사한다:
 
 ```
