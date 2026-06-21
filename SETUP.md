@@ -19,10 +19,14 @@
 > 회사 Mac은 이미 이 레포에 pull/push가 되는 상태이므로 **SSH 키 등록·권한 설정은 건너뛴다.**
 
 ### 1. clone
+회사 Mac에서 쓰던 인증 방식(SSH 또는 HTTPS) 그대로 쓰면 된다 — SSH 키를 새로 만들 필요 없다.
 ```
+# HTTPS (회사 Mac이 HTTPS credential을 쓰는 경우)
+git clone https://github.com/startdata/knowledge-base.git ~/knowledge-base
+# 또는 SSH
 git clone git@github.com:startdata/knowledge-base.git ~/knowledge-base
 ```
-(호스트키 경고가 뜨면 `ssh-keygen -R github.com` 후 재시도)
+> 전제: 회사 Mac이 git 인증하는 계정이 이 repo의 **collaborator로 추가 + 초대 수락**된 상태여야 한다. clone이 되면 접근 OK. (SSH 호스트키 경고가 뜨면 `ssh-keygen -R github.com` 후 재시도)
 
 ### 2. Obsidian
 - 설치 → "Open folder as vault" → `~/knowledge-base`
