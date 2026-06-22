@@ -4,4 +4,5 @@ private/
 # Obsidian 기기별 상태 (다기기 충돌 방지, 나머지 설정은 공유)
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json
+.obsidian/graph.json
 .trash/
