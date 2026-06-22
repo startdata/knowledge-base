@@ -1,0 +1,5 @@
+{
+  "skillOverrides": {
+    "학습": "user-invocable-only"
+  }
+}

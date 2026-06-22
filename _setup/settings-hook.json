@@ -1,5 +1,5 @@
 {
-  "_comment": "이 hooks 블록을 ~/.claude/settings.json 에 병합하세요 (이미 파일이 있으면 hooks 키만 추가). 경로는 ~/ 라서 사용자명 무관.",
+  "_comment": "이 hooks 블록을 ~/.claude/settings.json 에 병합하세요 (이미 파일이 있으면 hooks 키만 추가). 경로는 ~/ 라서 사용자명 무관. (학습 스킬은 프로젝트 .claude/ 에 있어 자동 적용되므로 여기 없음)",
   "hooks": {
     "PostToolUse": [
       {

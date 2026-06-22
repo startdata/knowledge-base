@@ -44,6 +44,7 @@ cp ~/knowledge-base/_setup/마무리.md ~/.claude/commands/마무리.md
 mkdir -p ~/.claude/hooks
 cp ~/knowledge-base/_setup/notify-organize.sh ~/.claude/hooks/notify-organize.sh
 ```
+> `/학습` 스킬은 이 repo의 `.claude/skills/`에 포함돼 있어 **clone하면 자동 적용**된다(이 프로젝트 전용). 별도 복사 불필요.
 그다음 `~/.claude/settings.json`에 훅을 등록한다 — `_setup/settings-hook.json`의 `"hooks"` 블록을 settings.json에 **병합**한다(이미 settings.json이 있으면 `hooks` 키만 추가). 경로는 `~/`를 쓰므로 사용자명 무관.
 
 설정 후 Claude Code에서 `/hooks`를 한 번 열어 훅을 로드한다.
