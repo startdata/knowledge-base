@@ -18,6 +18,19 @@ LLM 애플리케이션 **관측(observability) + 평가(evaluation)** 플랫폼.
 - ⚠️ `start_as_current_span`은 **없음**(4.12 기준). 문서/블로그에 v3 흔적이 남아 혼동 주의. 전역 클라이언트는 `get_client()`.
 - 전송은 비동기 배치(OTEL exporter) → 프로세스 종료 시 flush. 서버 없으면 전송만 실패(span 생성 자체는 됨).
 
+## 배치(사이클) 단위 트레이싱 패턴 (2026-08-03, 관제봇 실전)
+- **LLM 관측 도구지만 span은 LLM 없이도 기록된다** → 결정적 배치 단계(수집·분류·발송)도
+  span으로 감싸면 "사이클 1건 = 트레이스 1개, 단계 = 자식 span" 타임라인이 나온다.
+  단계 결과(건수)는 `span.update(output=...)`로 싣는다.
+- ⚠️ **propagate_attributes 중첩 함정**: 트레이스 속성(name·tags)은 trace 단위라, 부모
+  트레이스 안에서 자식이 다시 `propagate_attributes`를 부르면 **부모 트레이스의 이름·태그를
+  덮어쓴다**. 사이클 트레이스 안에 들어가는 관측은 전부 child 모드(속성 미설정, 관측 이름만)로
+  전환해야 한다. — 실측: partners-web-agent judge/tempbot generation 전환.
+- **프로세스 싱글턴**: `get_client()`가 전역 1개 → 한 프로세스에 봇이 여럿 동승하면
+  init/flush 주체는 하나여야 하고, 초기화 없이 span을 만들면 **조용히 버려진다**(에러 없음).
+- 트레이드오프: 개별 콜 트레이스(태그 필터 용이) vs 사이클 트레이스(순서·소요시간 가시).
+  전환하면 기존 태그 기반 대시보드 필터가 새 데이터에 안 걸린다 — 전환 공지 필요.
+
 ## 평가 방법
 - **LLM-as-a-Judge** (UI): 서버가 별도 LLM으로 자동 채점 → [[LLM-as-a-Judge]]
 - **code/SDK score**: 코드에서 결정적으로 `create_score`.
