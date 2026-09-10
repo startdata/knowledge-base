@@ -1,0 +1,40 @@
+---
+tags: [kafka, 파티션, 컨슈머, 순서]
+---
+# Kafka 파티션과 컨슈머 그룹 #stub
+
+> [[이벤트 순서 보장]] · [[Redis 분산락]] · [[Kinesis 컨슈머]](리샤딩 방식 차이) 와 연결.
+
+## 1. 두 단계를 구분한다 — 메시지→파티션, 파티션→컨슈머
+헷갈리기 쉬운 지점. 서로 다른 설정이다.
+
+| 단계 | 누가 | 규칙 | 설정 |
+|---|---|---|---|
+| **메시지 → 파티션** | 프로듀서의 **파티셔너** | 키가 있으면 `hash(key) % 파티션 수` → 같은 키는 항상 같은 파티션. 키가 없으면 라운드로빈/스티키 | `partitioner.class` |
+| **파티션 → 컨슈머** | 컨슈머 그룹의 **할당 전략(assignor)** | Range / RoundRobin / Sticky / CooperativeSticky로 파티션을 그룹 멤버에게 나눠 줌 | `partition.assignment.strategy` |
+
+"라운드로빈"이라는 말은 보통 두 번째(할당 전략)를 가리킨다. 메시지가 파티션에 배정되는 건 키 해시다.
+
+## 2. 순서의 근거 — "한 파티션은 한 번에 한 컨슈머만"
+- 컨슈머 그룹 안에서 파티션 하나는 **딱 한 컨슈머**에게만 할당된다. 그래서 같은 키(예: 기기 ID)의 메시지는 한 파티션 → 한 컨슈머에서 오프셋 순으로 처리된다
+- 이게 DB 동시 UPDATE 경합을 없애는 원리다: 같은 행을 건드리는 메시지가 한 워커에서만 순차로 실행되니 락 경합·데드락이 생길 수 없다. 다른 키는 다른 행이라 병렬이어도 무관
+- 파티션 수 = 최대 병렬도. 컨슈머가 파티션보다 많으면 남는 컨슈머는 논다
+
+## 3. 리밸런싱
+- 컨슈머가 죽거나 추가되면 그룹이 파티션을 재배정한다. 새 담당자는 **마지막 커밋 오프셋부터** 이어 처리 → 유실 없음, 지연만
+- 재배정 후 같은 키가 **다른 워커**로 갈 수 있다. 그래서 "항상 같은 워커"는 보장이 아니고, 순서의 근거는 "같은 파티션은 한 번에 한 컨슈머"다
+- 리밸런싱 중엔 잠시 소비가 멈춘다(eager). CooperativeSticky는 영향받는 파티션만 옮겨 정지를 줄인다
+
+## 4. Kinesis와의 차이 — 파티션 늘리기
+- Kafka: 파티션을 늘리면 `hash % N`의 N이 바뀌어 **기존 키가 다른 파티션으로 재배치**된다 → 증설 전후로 같은 키의 순서가 잠시 섞일 수 있다
+- Kinesis: 부모 샤드를 닫고 자식으로 쪼개므로 키 재배치가 없다. 대신 부모를 다 읽어야 자식 처리가 시작된다 → [[Kinesis 컨슈머]] §5
+
+## 복습 질문 #flashcards
+- 메시지가 파티션에 배정되는 규칙과, 파티션이 컨슈머에 배정되는 규칙은 각각 무엇인가? :: 프로듀서 파티셔너(키 해시) / 컨슈머 그룹 할당 전략(Range·RoundRobin·Sticky).
+- 워커가 여럿인데 같은 행의 동시 UPDATE 경합이 없는 이유는? :: 같은 키는 한 파티션, 한 파티션은 한 번에 한 컨슈머만 → 순차 실행.
+- 리밸런싱 후 순서는 어떻게 되나? :: 새 담당자가 마지막 커밋 오프셋부터 이어 처리. 파티션 안 순서는 유지, 담당 워커만 바뀜.
+
+## 출처
+- Kafka producer `partitioner.class`: https://kafka.apache.org/documentation/#producerconfigs_partitioner.class
+- Kafka consumer `partition.assignment.strategy`: https://kafka.apache.org/documentation/#consumerconfigs_partition.assignment.strategy
+- Kafka 개념(파티션·컨슈머 그룹): https://kafka.apache.org/documentation/#intro_concepts_and_terms
