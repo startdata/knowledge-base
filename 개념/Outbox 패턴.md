@@ -86,3 +86,26 @@ pending ─발송 성공→ complete ─N일 후→ 삭제
 - Debezium — Outbox Event Router: https://debezium.io/documentation/reference/stable/transformations/outbox-event-router.html
 - AWS DMS — Kinesis as target: https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Target.Kinesis.html (CDC 대안 검토용)
 - 검증·ID 발급 시점, 보관 기간 근거, 릴레이 조건은 세션 설계 논의에서 정리 — 공식 문서엔 없음, 검증 권장
+
+## 한 DB 안에서 outbox는 무엇을 위한 것인가 (2026-09 추가, 결제 개편 설계)
+> 세션: [[세션/leaf-결제개편/설계결정-서사]]
+
+outbox의 본래 목적은 dual write(§1)다. **같은 DB 안의 두 모듈 테이블은 한 트랜잭션으로 정합성이 끝나므로, 그 사이에 outbox를 두는 이유는 정합성이 아니다.** 결제 설계에서 같은 DB의 모듈 사이에도 outbox → 릴레이 → inbox를 둔 이유는 셋이었다.
+- **경계**: 모듈 A의 트랜잭션이 모듈 B의 테이블에 직접 쓰면 테이블 소유권이 깨지고, B를 다른 서버로 옮기는 날 그 쓰기 지점을 전부 찾아 고쳐야 한다. → [[모듈러 모놀리스]]
+- **장애 격리**: B(정산 전표) 코드의 버그가 A(청구서 발행·결제)를 롤백시키면 안 된다. 떼어 두면 A는 커밋되고 B만 재처리 대상이 된다.
+- **전달 수단 교체**: 발행 측이 outbox에만 쓰면, 릴레이의 목적지를 바꾸는 것(인프로세스 → Kafka)이 설정 변경으로 끝난다.
+
+**릴레이의 목적지는 브로커가 아니어도 된다.** outbox는 "내 테이블에만 쓰고 나머지는 릴레이가 옮긴다"는 규칙이고, 테이블 + 릴레이 워커만 있으면 성립한다.
+
+| 목적지 | 브로커 | 전달 보장 |
+|---|---|---|
+| 같은 DB의 상대 inbox 테이블 | 없음 | 릴레이가 outbox PUBLISHED 표시와 inbox INSERT를 **한 트랜잭션**에 → 정확히 한 번. inbox 유니크는 보험 |
+| 상대 서버 HTTP 엔드포인트 | 없음 | at-least-once, inbox 유니크 필요 |
+| SQS 등 관리형 큐 | 큐 | 같음 |
+| Kafka | Kafka | 같음. 다수 소비자 팬아웃이 장점 |
+
+**외부 API 호출(PG 승인)은 outbox·Kafka로 안전해지지 않는다.** 외부 호출을 안전하게 하는 것은 호출하는 모듈 안의 네 가지다: 호출 전 의도(attempt) 행을 PROCESSING으로 커밋, 호출은 어느 트랜잭션에도 속하지 않음, 같은 attempt 키를 외부 멱등키로 전달, 응답 부재 시 조회로 확정. outbox는 요청을 그 모듈까지 내구성 있게 **전달**할 뿐이다. → [[멱등성]] [[결제 상태 기계]]
+
+비용: 같은 프로세스 안인데도 발행과 소비 사이에 수 초 간격이 생기고 배관 코드가 늘어난다. "모듈이 나중에 갈라진다"는 요구가 없었다면 직접 호출이 맞았을 선택이다.
+
+출처: [AWS Transactional Outbox](https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html), [Confluent Transactional Outbox](https://developer.confluent.io/courses/microservices/the-transactional-outbox-pattern/) — "같은 DB 모듈 간에도 쓰는 이유"는 설계 판단이며 공식 문서의 주장은 아니다.

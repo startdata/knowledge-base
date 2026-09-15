@@ -38,3 +38,14 @@ tags: [kafka, 파티션, 컨슈머, 순서]
 - Kafka producer `partitioner.class`: https://kafka.apache.org/documentation/#producerconfigs_partitioner.class
 - Kafka consumer `partition.assignment.strategy`: https://kafka.apache.org/documentation/#consumerconfigs_partition.assignment.strategy
 - Kafka 개념(파티션·컨슈머 그룹): https://kafka.apache.org/documentation/#intro_concepts_and_terms
+
+## 결제 도메인에서의 적용 (2026-09 추가)
+> [[Outbox 패턴]] · [[멱등성]] · 세션: [[세션/leaf-결제개편/설계결정-서사]]
+
+- **파티션 키 = 청구 주체(고객) ID.** 같은 고객의 청구·결제·환불 이벤트가 한 파티션에 순서대로 들어간다. 결제 ID로 잡으면 청구서 이벤트와 결제 이벤트가 다른 파티션으로 갈 수 있다.
+- **오프셋 커밋은 inbox 커밋 뒤.** 순서가 반대면 오프셋은 넘어갔는데 inbox가 없는 유실이 생긴다. inbox `(source, event_id)` 유니크가 리밸런스 재전달의 방어선.
+- **토픽은 발행 모듈 단위**(`billing.events`, `payment.events`), 이벤트 종류·버전은 헤더. 컨슈머 그룹은 소비 모듈(서비스) 단위. 새 소비자 추가 = 그룹 추가.
+- **DLQ 재처리는 외부(PG) 조회 단계를 거친 뒤에만.** 실패한 결제 명령을 그냥 재처리하면 이중 승인이다.
+- **재생(replay)의 원천은 Kafka retention이 아니라 DB(outbox·inbox 보존분).** retention(기본 7일)이 지난 정산 재구축은 DB에서 한다. Kafka는 전달과 팬아웃 담당.
+- **단계적 도입**: 모든 모듈 간 이벤트를 처음부터 Kafka로 보낼 필요는 없다. 외부를 호출하고 가장 먼저 분리될 모듈(결제)의 안팎만 Kafka, 나머지는 같은 outbox에 인프로세스 릴레이 → 분리 시 토픽별 설정으로 전환. 릴레이 구현만 다르고 outbox·inbox는 같다.
+- 브로커 장애 시 outbox에 쌓이고 릴레이가 복구 후 발행한다. 결제는 지연되지만 유실되지 않는다.
