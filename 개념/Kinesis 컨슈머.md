@@ -77,3 +77,41 @@ Kinesis는 샤드를 "추가"하지 않고 **부모를 CLOSED로 만들고 자�
 - Resharding: https://docs.aws.amazon.com/streams/latest/dev/kinesis-using-sdk-java-resharding.html
 - Lambda ESM (Kinesis): https://docs.aws.amazon.com/lambda/latest/dg/with-kinesis.html
 - 회복 공식·용량 공식은 세션 계산 — 검증 권장
+
+## 6. KCL `processRecords`에서 예외를 던지면 무슨 일이 나나 (2026-09-17 추가)
+> 세션: [[세션/씨드앤-액션이력-파이프라인/BE-570-컨슈머-차단재시도]] · [[재시도 전략]] · [[Java 스레드 인터럽트]]
+
+**KCL은 `processRecords`가 던진 예외를 삼키고 그 배치를 건너뛴다. 재전달하지 않는다.** KCL 3.0.1 `ProcessTask.callProcessRecords`:
+```java
+} catch (Exception e) {
+    log.error("ShardId {}: Application processRecords() threw an exception when processing shard ", shardInfoId, e);
+    log.error("ShardId {}: Skipping over the following data records: {}", shardInfoId, records);
+}
+```
+AWS 가이드도 같은 말을 한다: "the KCL skips over the data records that were passed before the exception. That is, these records are not re-sent". 다음 배치가 성공해 `checkpoint()`하면 건너뛴 배치는 체크포인트 뒤로 밀려 **영구 유실**된다.
+
+따라서 "예외를 전파해 체크포인트를 막으면 KCL이 다시 준다"는 **fail-closed 설계는 KCL에서 성립하지 않는다.** 직접 `GetRecords` 폴링(§3)에서는 성립하는 전략이라 헷갈리기 쉽다 — 폴링은 내가 이터레이터를 다시 만들면 되지만, KCL은 배치를 넘긴 뒤 내 예외를 기다려 주지 않는다.
+
+**선택지는 둘뿐이다.**
+
+| 방법 | 동작 | 비용 |
+|---|---|---|
+| **처리 스레드 안에서 차단 재시도** — 저장소가 복구될 때까지 `processRecords`가 반환하지 않는다 | 배치가 메모리에 있고 위치가 움직이지 않는다. KCL lease 갱신은 별도 스레드(`LeaseCoordinator`)라 유지된다 | 그 샤드의 처리가 멈춘다(의도된 것). 다른 스트림 워커는 영향 없음 |
+| `Runtime.halt(1)` → 컨테이너 재시작 → 마지막 체크포인트부터 재읽기 (AWS 공식 샘플의 `catch (Throwable) { halt(1) }`) | 확실하지만 같은 프로세스의 다른 스트림 워커까지 죽인다 | 재시작 반복 |
+
+어느 쪽이든 **`processRecords` 밖으로는 어떤 예외도 내지 않는다**가 규칙이다. DLQ에 쓰는 코드도 마찬가지 — 격리 저장소 쓰기가 실패해 예외가 새면 같은 배치의 정상 레코드까지 건너뛴다.
+
+**shutdown과 차단 루프**: KCL `Scheduler.finalShutdown()`은 `executorService.shutdownNow()`로 처리 스레드를 인터럽트한다. 차단 재시도 중이던 스레드는 인터럽트로 깨어나는데, 이걸 "저장 실패"로 잡아 DLQ에 보내면 일시 장애가 영구 실패로 위장된다. 인터럽트는 종료 신호로 분리해 DLQ도 체크포인트도 하지 않고 나간다 → 재시작 시 체크포인트부터 다시 읽는다(at-least-once). → [[Java 스레드 인터럽트]]
+
+**차단 중임을 어떻게 아나**: 차단 중에는 `GetRecords` 호출이 멈추므로 `GetRecords.IteratorAgeMilliseconds` **데이터포인트 자체가 사라진다** → 알람은 `treat_missing_data=breaching`이어야 울린다. 앱이 발행하는 `millisBehindLatest` gauge는 마지막 값이 그대로 남아 오르지 않는다. 그래서 "기다리는 중"을 직접 알리는 **재시도 카운터**(예: `consumer.rds.retry`, Sum > 0)가 따로 필요하다.
+
+### 복습 질문 #flashcards
+- KCL에서 `processRecords`가 예외를 던지면? :: KCL이 삼키고 그 배치를 건너뛴다. 재전달 없음. 다음 체크포인트에서 영구 유실.
+- KCL 컨슈머에서 저장소 장애를 유실 없이 넘기는 두 방법은? :: 처리 스레드 안 차단 재시도 / halt로 프로세스 재시작 후 체크포인트부터 재읽기.
+- 차단 재시도 중 IteratorAge 알람이 안 울릴 수 있는 이유는? :: GetRecords가 멈춰 데이터포인트가 사라진다. treat_missing_data=breaching 필요.
+
+### 출처 (6장)
+- KCL 3.0.1 ProcessTask 소스: https://github.com/awslabs/amazon-kinesis-client/blob/v3.0.1/amazon-kinesis-client/src/main/java/software/amazon/kinesis/lifecycle/ProcessTask.java
+- AWS 개발자 가이드 "Implement the record processor" (예외 시 skip 서술): https://docs.aws.amazon.com/streams/latest/dev/kinesis-record-processor-implementation-app-java.html
+- KCL 2.x 표준 컨슈머 샘플(`halt(1)`): https://docs.aws.amazon.com/streams/latest/dev/kcl2-standard-consumer-java-example.html
+- `shutdownNow` 인터럽트·lease 스레드 분리는 세션에서 jar(`Scheduler`·`LeaseCoordinator`) 확인 — 버전 바뀌면 재확인

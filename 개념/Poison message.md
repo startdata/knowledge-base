@@ -48,3 +48,11 @@ tags: [메시징, 장애, 컨슈머]
 - AWS SQS Dead-letter queues: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html
 - Lambda + Kinesis 오류 처리(bisect, on-failure destination): https://docs.aws.amazon.com/lambda/latest/dg/services-kinesis-errors.html
 - 층별 구분·격리 저장소 판단은 세션 정리 — 검증 권장
+
+## 6. DLQ 오브젝트에는 무엇을 담나 — 레코드 식별자와 "영구 실패만" (2026-09-17 추가)
+> 세션: [[세션/씨드앤-액션이력-파이프라인/BE-570-컨슈머-차단재시도]] · [[재시도 전략]]
+
+- **레코드 식별자를 본문에 평문으로 넣는다** (`itemKey` = 매핑의 파티션 키 속성 값, 예 `eventId`). 원본 payload를 Base64로만 보관하면 대사(reconciliation)가 격리 목록을 만들 때 오브젝트마다 디코드·파싱해야 한다. 브로커의 파티션 키(`partitionKey`)와는 다른 값이라 둘 다 둔다. 디코드 실패 건은 `null`
+- **일시 실패를 격리하지 않으면 DLQ 규칙이 단순해진다.** DLQ에 있는 것이 전부 영구 실패라면 대사는 "DLQ에 있으면 제외" 한 줄이다. 일시 실패가 섞이면 `errorMessage`로 사람이 가려야 하고, 재적재 전까지 정상 레코드가 조용히 빠진다 → [[재시도 전략]] 차단 재시도
+- 격리 저장소 키 구조는 바꾸지 않는다 — 다른 컨슈머가 같은 DLQ 버킷을 쓰면 키 변경은 전부의 변경이다. 필드 추가는 가산적이라 안전
+- 격리 저장소가 파일/오브젝트 스토리지(S3)면 DB 테이블(§4)과 달리 조회·수정이 불편하다. 그 대신 대사 배치가 읽기 쉽게 **본문에 필요한 키를 다 넣어 두는 것**으로 보완한다
